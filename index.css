@@ -1,0 +1,40 @@
+@import url('https://fonts.googleapis.com/css?family=Amatic+SC|Josefin+Slab|Poiret+One');
+
+html, body {
+    margin: 0px;
+    background: black;
+    height: 100%;
+}
+
+.main {
+    overflow: hidden;
+    position: relative;
+    height: 100%;
+}
+.main img {
+    width: 100%;
+}
+
+.links {
+    position: absolute;
+    left: 40px;
+    top: 40px;
+    padding: 10px;
+    background-color: rgba(255, 255, 255, 0.75)
+}
+.links img {
+    display: block;
+    width: 40px;
+    height: 40px;
+    padding: 5px;
+}
+
+.intro {
+    color: black;
+    font-family: 'Josefin Slab', serif;
+    font-size: 20px;
+    padding: 35px;
+/*    background-color: #fd4501;*/
+    background-color: white;
+    white-space: pre-line;
+}
