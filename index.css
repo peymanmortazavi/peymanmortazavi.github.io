@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css?family=Amatic+SC|Josefin+Slab|Poiret+One');
+@import url('https://fonts.googleapis.com/css?family=EB+Garamond');
 
 html, body {
     margin: 0px;
@@ -9,7 +9,6 @@ html, body {
 .main {
     overflow: hidden;
     position: relative;
-    height: 100%;
 }
 .main img {
     width: 100%;
@@ -29,12 +28,50 @@ html, body {
     padding: 5px;
 }
 
+/* Introduction */
 .intro {
+    overflow: hidden;
     color: black;
-    font-family: 'Josefin Slab', serif;
-    font-size: 20px;
-    padding: 35px;
-/*    background-color: #fd4501;*/
+    font-size: 30px;
+    text-align: justify;
+    padding: 25px;
     background-color: white;
+}
+.intro th {
+    padding: 30px;
+}
+.intro th:first-child {
+    border-right: rgba(0, 0, 0, 0.5) 1px dashed;
+}
+.intro th:last-child {
+    padding-left: 80px;
+}
+.intro table {
+    width: 100%;
+}
+.intro-text {
     white-space: pre-line;
+    text-align: justify;
+    padding: 10px;
+    font-size: 24px;
+    font-family: "EB Garamond";
+    font-weight: 100;
+}
+.intro-contact-info {
+    line-height: 50px;
+    min-width: 400px;
+    font-family: "EB Garamond";
+    font-size: 30px;
+}
+
+
+.purple {
+    overflow: hidden;
+    color: black;
+    font-family: "EB Garamond";
+    font-size: 25px;
+    text-align: justify;
+    padding: 25px;
+    background-color: paleturquoise;
+    font-weight: 100;
 }
