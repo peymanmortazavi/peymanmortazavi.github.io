@@ -70,12 +70,12 @@ h3 {
 
 
 .education {
+    text-align: center;
     border-top: dashed black 2px;
     overflow: hidden;
     color: black;
     font-family: "EB Garamond", serif;
     font-size: 22px;
-    text-align: justify;
     padding: 25px;
     background-color: paleturquoise;
     font-weight: 100;
@@ -116,3 +116,40 @@ h3 {
     text-align: justify;
     margin-bottom: 0;
 }
+
+.projects {
+    border-top: dashed black 2px;
+    overflow: hidden;
+    color: lightgray;
+    font-family: "Avenir Next", serif;
+    font-size: 22px;
+    text-align: justify;
+    padding: 25px;
+    background-color: #37474f;
+    font-weight: 100;
+}
+
+.project-title {
+    font-size: 25px;
+    font-weight: 100;
+    color: white;
+    line-height: 10px;
+}
+
+.project-subtitle {
+    font-size: 20px;
+    color: #9c9c9c;
+}
+
+.project-body {
+    width: 60%;
+    text-transform: lowercase;
+    line-height: 22px;
+    font-family: "Avenir Next", serif;
+    color: #80deea;
+    font-size: 16px;
+    text-align: justify;
+    margin-bottom: 0;
+}
+
+/*#78d86f*/
