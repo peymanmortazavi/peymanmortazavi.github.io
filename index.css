@@ -70,13 +70,49 @@ h3 {
 
 
 .education {
+    border-top: dashed black 2px;
     overflow: hidden;
     color: black;
-    font-family: "EB Garamond";
-/*    font-family: "Josefin Slab";*/
+    font-family: "EB Garamond", serif;
     font-size: 22px;
     text-align: justify;
     padding: 25px;
     background-color: paleturquoise;
     font-weight: 100;
+}
+
+.special-symbol {
+    color: firebrick;
+}
+
+.experience {
+    border-top: dashed black 2px;
+    overflow: hidden;
+    color: black;
+    font-family: "EB Garamond", serif;
+    font-size: 22px;
+    text-align: justify;
+    padding: 25px;
+    background-color: #FFE082;
+    font-weight: 100;
+}
+
+.experience-section {
+    border: dashed rgba(0, 0, 0, 0.5) 1px;
+    border-radius: 3px;
+    background-color: rgba(255, 255, 255, 0.35);
+    margin-bottom: 10px;
+    font-family: "Josefin Slab", serif;
+    font-size: large;
+    padding: 15px;
+}
+
+.experience-body {
+    white-space: pre-line;
+    line-height: 28px;
+    font-family: "EB Garamond", serif;
+    font-size: 16px;
+    color: black;
+    text-align: justify;
+    margin-bottom: 0;
 }
