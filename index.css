@@ -142,7 +142,6 @@ h3 {
 }
 
 .project-body {
-    width: 60%;
     text-transform: lowercase;
     line-height: 22px;
     font-family: "Avenir Next", serif;
@@ -150,6 +149,13 @@ h3 {
     font-size: 16px;
     text-align: justify;
     margin-bottom: 0;
+}
+
+.project-section {
+    min-width: 500px;
+    max-width: 48%;
+    padding: 1%;
+    margin-bottom: 60px;
 }
 
 /*#78d86f*/
