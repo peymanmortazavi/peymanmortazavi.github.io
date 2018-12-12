@@ -118,7 +118,7 @@ h3 {
 }
 
 .projects {
-    border-top: dashed black 2px;
+    border-top: dashed white 4px;
     overflow: hidden;
     color: lightgray;
     font-family: "Avenir Next", serif;
