@@ -1,6 +1,5 @@
 <script lang="ts">
 	import "../app.css";
-	import "@fontsource/neucha";
 	import favicon from "$lib/assets/favicon.svg";
 	import SketchyFrame from "$lib/SketchyFrame.svelte";
 
