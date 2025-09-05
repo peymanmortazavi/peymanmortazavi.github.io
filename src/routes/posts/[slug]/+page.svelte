@@ -5,6 +5,11 @@
 	let { data } = $props();
 </script>
 
+<svelte:head>
+	<title>{data.metadata.title}</title>
+	<meta name="description" content={data.metadata.description} />
+</svelte:head>
+
 <div class="p-2 pr-4 md:p-4 lg:p-6 xl:p-12 font-mono">
 	<span class="text-xl md:text-2xl lg:text-3xl xl:text-4xl font-bold"
 		>{data.metadata.title}</span

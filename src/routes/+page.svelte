@@ -24,6 +24,14 @@
 	];
 </script>
 
+<svelte:head>
+	<title>Peyman Mortazavi - Seasoned Software Engineer</title>
+	<meta
+		name="description"
+		content="Personal website of Peyman Mortazavi who is a curious person about art, music and technology."
+	/>
+</svelte:head>
+
 <div
 	class="flex relative h-full pt-2 pl-2 md:pt-4 md:pl-4 lg:pt-10 lg:pl-10 overflow-x-hidden"
 >

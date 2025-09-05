@@ -7,6 +7,14 @@
 	let selectedRange: Range | undefined = $state();
 </script>
 
+<svelte:head>
+	<title>Peyman Mortazavi - Resume and Work History</title>
+	<meta
+		name="description"
+		content="Resume and work history of Peyman Mortazavi, excluding the open-source and personal projects."
+	/>
+</svelte:head>
+
 <YearBar startYear={2017} endYear={2025} {selectedRange} />
 
 <WorkExperienceContainer
