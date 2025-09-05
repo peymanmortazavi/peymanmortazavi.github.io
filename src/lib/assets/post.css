@@ -1,0 +1,35 @@
+@reference "../../app.css";
+
+#post-container {
+  h1 {
+    @apply text-3xl font-bold mb-8 mt-12 text-left;
+  }
+
+  h2 {
+    @apply text-2xl font-bold mb-6 mt-10 text-left;
+  }
+
+  h3 {
+    @apply text-xl font-semibold mb-4 mt-8 text-left;
+  }
+
+  h4 {
+    @apply text-lg font-semibold mb-3 mt-6 text-left;
+  }
+
+  h5 {
+    @apply text-base font-semibold mb-2 mt-4 text-left;
+  }
+
+  h6 {
+    @apply text-base font-medium mb-2 mt-4 text-left;
+  }
+
+  img {
+    @apply my-10;
+  }
+
+  li {
+    @apply my-6 space-y-2 text-left;
+  }
+}
