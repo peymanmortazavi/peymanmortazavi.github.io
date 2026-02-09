@@ -6,33 +6,74 @@ date: 2026-02-09
 
 # Introduction
 
-CSV parsing is one of those problems that seems simple until you actually try to do it well. The format itself is deceptively straightforward, but handling quoted fields, escape sequences, and different line endings while maintaining good performance requires careful design. In this post, I'll walk through how csv-zero leverages SIMD instructions and careful state management to parse CSV files efficiently.
+CSV parsing is one of those problems that looks trivial until you try to do it _well_. The format itself is simple, but supporting quoted fields, escape sequences, and multiple line-ending conventions—while still delivering high throughput—requires careful design.
 
-In this post, we journey into techniques I explored for designing a fast CSV iterator and the tradeoffs involved.
-We will discuss using SIMD, avoiding dynamic allocations and reducing branches.
-Then we will review methodology for benchmarking and examining the results.
+In this post, I’ll walk through the design of **csv-zero**, a SIMD-accelerated, zero-allocation CSV iterator. We’ll explore the techniques used to achieve high performance, the tradeoffs involved, and the constraints that shaped the final architecture.
 
-If you're interested in SIMD programming, branch prediction, or systems-level optimization, you might find some useful patterns here.
+Specifically, we’ll cover:
 
-I used Zig for the implementation so there will be references to the languages but the approaches are language agnostic.
+- Why iterating _fields_ instead of _records_ enables zero allocation
+- How SIMD can be used to efficiently locate CSV delimiters
+- How branch reduction improves performance in hot loops
+- How quoted fields are handled
+- The benchmarking methodology used to evaluate these choices
 
-### Brief introduction to CSV file format
+If you’re interested in SIMD programming, branch prediction, or systems-level optimization, you may find some reusable patterns here.
 
-If you are already familiar with CSV, you can safely skip this part.
+The implementation is written in **Zig**, so examples reference Zig syntax and semantics, but the underlying ideas are largely language-agnostic and applicable to C, C++, Rust, or similar systems languages.
 
-CSV does have a RFC standard and you can access it [here](https://www.rfc-editor.org/rfc/rfc4180). The article does a
-great job explaining the file format and it is easy to follow. We will reiterate it here as well.
+## A brief introduction to the CSV format
 
-A record is a collection of fields, and CSV is a collection of records where every record is on a separate line.
+If you are already familiar with CSV, feel free to skip this section.
 
-TBD
+CSV does have an RFC specification—[RFC 4180](https://www.rfc-editor.org/rfc/rfc4180)—which is concise and readable. Below is a distilled version of the rules relevant to this discussion.
 
-# Implementation
+At a high level:
 
-As stated, the goals for this project was for it to be fast. In order to accomplish that, there are three design
-choices that I explored.
+- A CSV file is a sequence of **records**
+- Each record appears on its own line
+- Each record consists of one or more **fields**, separated by commas
 
-Imagine we define an iterator struct, this iterator has a `next()` function that returns the next field or an error.
+### Fields
+
+A field may be either:
+
+1. **Unquoted**, containing any characters except commas, quotes, or line breaks
+2. **Quoted**, enclosed in double quotes (`"`)
+
+Quoted fields may contain:
+
+- Commas
+- Line breaks
+- Escaped quotes, represented as two consecutive double quotes (`""`)
+
+Examples:
+
+```
+a,b,c
+"hello, world",42,"foo""bar"
+```
+
+### Line endings
+
+Records may be terminated by:
+
+- LF (`\n`)
+- CRLF (`\r\n`)
+
+A correct parser must handle both.
+
+Understanding these rules is critical for parser implementation because each rule introduces branching logic and state management that impacts performance.
+
+# Implementation overview
+
+The primary goal of csv-zero is **performance**, with the explicit constraint of **zero dynamic allocation** in the iterator. To achieve this, the implementation focuses on three main design choices:
+
+1. Iterating over **fields**, not records
+2. Using **SIMD** to locate delimiters
+3. Reducing **branches** in hot paths
+
+The core abstraction is an iterator with a `next()` method that returns the next field or an error.
 
 ```zig
 const Field = struct {
@@ -50,291 +91,292 @@ const Iterator = struct {
 };
 ```
 
-We will obviously have more errors and more fields in the `Field` struct but this is all we need to discuss the
-implementation.
+The production implementation includes additional error types and field metadata, but this simplified interface captures the essential contract.
 
-The general idea is to fill the buffer, look for delimiters, once the delimiter is found, return a slice for the
-current field.
+Conceptually, the iterator works as follows:
+
+1. Scan the buffer for the next delimiter (comma, newline, or quote)
+2. If the delimiter is a comma or newline:
+
+   - Return the field up to that point
+
+3. If the delimiter is a quote:
+
+   - Enter quoted-field handling logic:
+
+     - Search for the matching closing quote
+     - Handle escaped quotes (`""`)
+     - Validate the character following the closing quote
+     - Return the quoted field or an error
+
+In pseudocode:
 
 ```
 function next():
-    1. Find the next delimiter (quote, comma, or newline)
+    find next delimiter (quote, comma, newline)
 
-    2. If delimiter is comma or newline:
-       → Return the field up to this delimiter
+    if delimiter is comma or newline:
+        return field
 
-    3. If delimiter is quote (opening quote):
-       a. Search for the closing quote
-       b. After finding a quote, check the next character:
-          • If it's another quote (""): escaped quote
-            → Skip both quotes and continue searching
-          • If it's comma or newline: end of quoted field
-            → Return the quoted field
-          • Otherwise if no more byte is remaining: last field
-            → Return the quoted field
-          • Otherwise: malformed CSV
-            → Return error
+    if delimiter is quote:
+        loop:
+            find next quote
+            if escaped quote:
+                skip
+            else if followed by comma or newline:
+                return field
+            else if end of input:
+                return field
+            else:
+                error
 ```
 
-The idea is simple but there are some corner cases that need to get covered for a correct implementation.
+While the algorithm appears straightforward, correct implementation requires careful handling of buffer boundaries, escape sequences, and line ending variations. The following sections detail how SIMD, zero-allocation, and branch reduction address these challenges.
 
 ## Zero Allocation
 
-Dynamic allocation can require system calls (if using heap allocations), can involve system interruptions
-and consequently be expensive.
-That is why emphasis has been put into designing a CSV iterator that does not need to allocate memory dynamically.
+Dynamic memory allocation introduces overhead that compounds at scale. Even with efficient allocators, allocations involve:
 
-In order to avoid dynamic allocations, I made a deliberate architectural choice to iterate the fields and not the
-records. The iterator scans the buffer until the next field is found and simply return
-a slice into the buffer. This slice is only valid until the next iteration (calling `next()`) since the buffer
-might get modified.
+- Allocator bookkeeping and metadata updates
+- Potential cache pollution from accessing allocator data structures
+- Memory fragmentation over time
+- Unpredictable latency, especially with general-purpose allocators like `malloc`/`free`
 
-Many CSV libraries provide a record iterator instead, meaning that the entire record and all of its fields are
-returned at once.
-This does offer more convenience for the consumer in some cases, because the `next()` function would
-effectively return an array of fields in the record at once.
+While arena allocators and custom allocation strategies can mitigate some of these costs, eliminating allocations entirely is more efficient. This is why csv-zero is architected to operate entirely on a fixed-size buffer without any dynamic allocations during parsing.
 
-For instance, if you wanted to read the second field of every record you can write a simpler program.
+To completely avoid dynamic allocation, csv-zero deliberately iterates over **fields**, not **records**.
+
+Instead of returning an array of fields for each record, the iterator returns one field at a time as a slice into an internal buffer. That slice is valid only until the next call to `next()`, at which point the buffer may be reused or refilled.
+
+This design choice has consequences.
+
+### Why not record iteration?
+
+Many CSV libraries expose a record-oriented API:
 
 ```zig
-var total: usize = 0;
 while (iterator.next()) |record| {
-    // record is an array that holds all of the fields in the record!
-    total += try std.fmt.parseInt(u32, record[1], 10);  // second field in every record!
+    total += parseInt(record[1]);
 }
 ```
 
-However, this complicates the zero-allocation goal. Since the number of fields is unknown at compile time,
-we either have to put an upper limit on the total count of fields to avoid dynamic allocation or give up the
-zero allocation goal entirely.
-One might argue that we can retain the allocated memory and have very limited dynamic memory allocation albeit not
-zero. This is perhaps true if the memory allocations are limited to the field buffer but returning the records
-presents another challenge. We would have to be able to fit the entire record and all of its fields in the buffer.
+This is convenient, but fundamentally incompatible with zero allocation:
 
-The limitations stated above and the focus on performance led me to choose to iterate fields instead of records.
-We would not make any choice for the user to sacrifice performance, they can easily write a wrapper around our field
-iterator to produce a record iterator if that is desired. Besides, there are many usecases where records are not really
-needed. For instance, field clean up such as removing spaces, removing invalid numbers or file conversions such as
-converting CSV to JSON or XLSX. In all of these cases, processing records instead of fields does not immediately
-provide any convenience.
+- The number of fields per record is not known at compile time
+- Returning a record requires storing all field slices somewhere
+- That storage must either be dynamically allocated or capped at an arbitrary maximum
 
-### Buffer sliding and fields that are too long
+You _can_ mitigate this by reusing allocations, but at that point the design is no longer truly allocation-free. You still have to buffer the entire record, which places a significant constraint on the iterator and, in practice, often pushes users back toward explicit memory allocation anyway.
 
-Since we do not allocate dynamic memory for fields (or anything else), the buffer must be able to fit the entire
-field. Otherwise, we return an error indicating that the field is too long for the current buffer size. The consumer
-can then resort to dynamic memory allocation or they can skip the field or just return an error. Google drive and
-Excel do limit the size of each field. We can obviously provide some shortcut methods to automatically switch to
-dynamic allocation for those exceptionally large fields if the user prefers but let us focus on the foundation and not
-utility functions.
+By iterating over fields instead, csv-zero avoids all of these issues. Users who want record-level iteration can easily build it on top of the field iterator, while users focused on streaming transformations—filtering, validation, conversion—avoid unnecessary buffering entirely.
 
-The challenge we need to solve here is that if the buffer can fit the field, we should be able to handle it. If the
-field starts in the middle of the buffer and no delimiter is found in the remaining bytes in the buffer,
-we would move the content to the beginning of the buffer and try to fill it more until there is no more room, then
-continue the search from whence we left off.
+In many practical workloads (e.g. CSV → JSON conversion, column selection, data cleanup), record materialization provides little benefit.
+
+## Buffer sliding and oversized fields
+
+Because fields are returned as slices into a fixed buffer, the buffer must be large enough to hold the largest field encountered. If a field exceeds the buffer size, the iterator returns a `FieldTooLong` error, allowing the caller to decide how to proceed (allocate dynamically, skip the field, abort, etc.).
+
+The key challenge is maximizing buffer utilization. If a field starts in the middle of the buffer and extends beyond the current buffered data, we need to:
+
+1. **Slide** the partial field to the beginning of the buffer using `@memmove`
+2. **Fill** the remaining buffer space by reading more data from the input stream
+3. **Resume** scanning from where we left off
+
+This sliding window technique ensures that any field smaller than the buffer size can be parsed, regardless of its alignment within the input stream.
 
 ![Buffer sliding and refilling](/p/1-csv-zero-buffer-sliding.svg)
 
-## SIMD
+## SIMD-accelerated delimiter scanning
 
-SIMD stands for _Single Instruction, Multiple Data_ and it is a parallel computing method available in many CPU
-architectures that allows a single processor instruction to perform the same operation on multiple data points.
+SIMD (_Single Instruction, Multiple Data_) allows a single CPU instruction to operate on multiple data elements simultaneously.
+This data-level parallelism is ideal for operations like searching for delimiters, where we need to compare many bytes against the same set of characters.
+Modern CPUs support wide vector registers (128–512 bits, 16-64 bytes).
 
-If you are not familiar with this, I recommend reading about it online and/or read
-[Zig Vectors](https://zig.guide/language-basics/vectors/).
+If you're unfamiliar with SIMD, I recommend reading about [Zig Vectors](https://zig.guide/language-basics/vectors/) or reviewing your architecture's SIMD instruction set documentation.
 
-Because SIMD is very much dependant on the CPU architecture, it is important to choose the correct length based on the
-CPU architecture.
-For the sake of simplicity, I will skip over all of that. Since we have figures and charts, let's assume we can hold 6
-bytes in our vectors. In real world scenarios, you can have access to much larger vectors. For instance for M4 cpus you
-can use 128 bits (16 bytes) or 256 bits (32 bytes).
+In csv-zero, SIMD is used to locate delimiter characters—quotes (`"`), commas (`,`), and newlines (`\n`)—by processing multiple bytes at once.
 
-We can apply SIMD to our problem by loading 6 bytes at a time. You can compare two vectors and get a new vector of
-booleans of the same length. We can use this and delimiter masks to find all delimiter characters in a vector.
+Using Zig vectors:
 
 ```zig
 const Vector = @Vector(16, u8);
-const input: Vector = my_slice[cursor..cursor+16].*;  // load 16 bytes from slice onto the vector.
-const QuoteMask: Vector = @splat('"');  // creates a vector where each element is "
-const CommaMask: Vector = @splat(',');
-const NewLineMask: Vector = @splat('\n');
-const quotes = (input == QuoteMask);
-const commas = (input == CommaMask);
-const newlines = (input == NewLineMask);
+const input: Vector = buffer[cursor..cursor+16].*; // Load 16 bytes from buffer.
+
+const quotes   = input == @splat('"');
+const commas   = input == @splat(',');
+const newlines = input == @splat('\n');
+
 const delimiters = (quotes | commas | newlines);
 ```
 
+This produces a vector of booleans indicating the positions of delimiter characters.
+The entire operation executes in just a few SIMD instructions, processing 16+ bytes in parallel.
+
+Note that `@splat` in Zig creates an array or vector where each element is set to the same scalar value.
+
+For illustration purposes in this article, we'll use 6-byte vectors to keep diagrams readable. In production, csv-zero automatically selects the optimal vector length for the target architecture at compile time.
+
 ![Delimiter vector compution using SIMD](/p/1-csv-zero-simd.svg)
 
-We are able to compute a boolean vector that indicates the positions of the delimiters.
+**NOTE**: The actual bit representation of `delimiters` uses little-endian bit ordering (LSB = index 0). The diagram shows a human-friendly left-to-right ordering for readability, but the implementation must account for the actual CPU representation when extracting bit positions.
 
-**NOTE**: The actual bit representation of `delimiters` would be in reverse, so `0b1011010`. The figure shows a more
-friendly order for human eyes but this is an important detail to keep in mind.
-
-Now we can effectively use this boolean vector as a queue that holds the position of the delimiters. As long as the
-vector is not all 0s, the index of the next `1` bit is the index of the next delimiter.
-
-From now on, most of the operations are perform on the vector, as you will see, are simple integer operations. For that
-reason, we interpret the vector as a simple integer type.
+To efficiently consume this result, the boolean vector is bit-cast to an integer:
 
 ```zig
-// since 6 is our vector size in bytes, we need an unsigned 6-bit integer.
-const Bitmask = std.meta.Int(.unsigned, 6);
-const vector: Bitmask = @bitCast(delimiters);
+const Bitmask = std.meta.Int(.unsigned, 16);
+const mask: Bitmask = @bitCast(delimiters);
 ```
 
-**NOTE**: I found it interesting that converting this into an integer and performing integer operations leads to
-significant performance gains as opposed to using `std.simd.firstTrue` or other alternatives in the `std.simd`.
+This enables fast integer operations instead of higher-level SIMD helpers.
 
-### Zero checks
+### Why integers instead of SIMD helpers?
 
-Since our vector is an unsigned integer type, we can simply use integer arithmetics. If `vector == 0` then it means we
-have no delimiters in the current vector.
+In practice, treating the mask as an integer and using bit-twiddling operations (`@ctz`, `&=`) proved significantly faster than calling helper functions like `std.simd.firstTrue`.
 
-### Pop the next delimiter position
+Additionally, from now on, most of the operations, as you will see, are simple integer operations.
 
-In order to find the index of the next `1` bit, we need to count the number of trailing zeros. This can be done very
-cheaply using the `ctz` CPU instruction, which is available via `@ctz` in Zig:
+## Finding and consuming delimiters
+
+Once the delimiter mask is available:
+
+- If `mask == 0`, there are no delimiters in this chunk
+- Otherwise, find the index of the next delimiter in `mask`
+
+To find the position of the next delimiter, we need to locate the least significant set bit (the rightmost `1`) in our bitmask. This is done efficiently using the **count trailing zeros** (CTZ) instruction:
 
 ```zig
-const index = @ctz(vector);
+const index = @ctz(mask);
 ```
 
-We have the index now, but in order to make sure next time, we don't return the same index, we need to remove the least
-significant set bit. In order to do this, we can use a common trick:
+The CTZ instruction counts the number of consecutive zero bits starting from the LSB, which directly gives us the bit index. On x86-64, this compiles to a single `TZCNT` or `BSF` instruction.
+
+To avoid returning the same delimiter again, the least significant set bit is cleared:
 
 ```zig
-vector &= vector - 1;
+mask &= mask - 1;
 ```
 
-Why does this work? because `vector - 1` turns the least significant `1` into `0` and all the less significant `0`s
-into `1`s. Performing a bitwise AND with the original number then turns that original `1`-bit and all
-trailing zeros into 0s, leaving higher-order bits intact.
+This classic trick compiles down to a single instruction on many architectures (e.g. `BLSR`).
+
+**Why this works**: Subtracting 1 from a number flips all trailing zeros to ones and flips the rightmost `1` to `0`. The bitwise AND then clears everything up to and including that bit:
 
 ```
-A     : 0b110100;
-A - 1 : 0b110011;
-&     : 0b110000;
+A     : 0b110100  (original)
+A - 1 : 0b110011  (rightmost 1 becomes 0, trailing 0s become 1s)
+&     : 0b110000  (AND clears the rightmost 1 and all trailing bits)
 ```
 
-Some CPU architectures have a dedicated CPU instruction for this, known as BLSR. When available, compilers can easily
-optimize `a & a-1 ` to BLSR.
+This gives us a two-instruction loop for iterating through set bits: CTZ to find the position, then clear the bit. Effectively using the `mask` integer variable as a queue. This is significantly faster than scalar iteration or branching based on individual bit tests.
 
-Thus, with only two instruction we can find the index of the next set bit (`1`) and pop it off.
+## Integrating SIMD into the iterator
 
-### Putting this into practical use
+A helper like `nextDelim()` encapsulates this logic:
 
-We can define a new function named `nextDelim` whose sole purpose is to return the position of the
-next delimiter in the buffer.
+- If a cached delimiter mask exists, pop from it
+- Otherwise:
 
-We can define this as:
+  - Load the next SIMD chunk
+  - Compute the delimiter mask
+  - Cache it and return the first delimiter
 
-```
-if self.vector is non zero:
-    -> index = count of trailing zeros in self.vector
-    -> pop the least significant 1
-    -> return self.vector_offset + index
-Otherwise
-    Loop as long as cursor+6 < buffer_end:
-        1. load and calculate vector as unsigned integer
-        2. if vector is non-zero:
-         -> store vector in the self.vector
-         -> store the current buffer offset in self.vector_offset
-         -> pop and retrieve the index of the next set bit
-         -> return index + self.vector_offset
-Otherwise, perform a byte by byte iteration until the end of the buffer
+- Fall back to byte-by-byte scanning near buffer boundaries
 
-```
-
-And the `next` function would just call `nextDelim` function as long as there is any remaining bytes in the buffer and
-performing sliding and refilling as necessary until next delimiter is found, end of file is reached or buffer is full
-indicating that the current field is too long.
+The main `next()` function repeatedly calls `nextDelim()` until it can return a field, refill the buffer, or signal EOF or error.
 
 ![Pop least significant set bit](/p/1-csv-zero-vector-pop.svg)
 
-## Handling quoted regions
+## Handling quoted fields
 
-A big part of the puzzle is handling the quoted regions in an efficient way. Since the logic for handling the quoted
-regions is more complex and branch-heavy than the non-quoted fields, we pay for one branch to check if the current
-delimiter is a double quote in the `next()` call and handle the double quotes differently. In another word, if the next
-delimiter is a double quote, handle it with special logic, otherwise, treat it as an end of the field and return it.
+Quoted fields introduce complexity and branching. To keep the fast path fast, csv-zero separates quoted and unquoted logic early:
 
-Now the more important part, how do we handle the cases where we do have a double quote? There are some key things we
-have to accomplish:
+- If the next delimiter is **not** a quote, it is treated as a field boundary
+- If it **is** a quote, a dedicated quoted-field routine is entered
 
-1. **Detect whether or not an escaped quote is present in the field**
+Key goals when handling quoted fields:
 
-   I decided to not actually perform the unescaping and let the user decide if they want to pay the price of the
-   unescaping since at times we just want to determine if the field is empty, or to count fields or maybe the field is
-   completely ignored due to a select operation where only some columns are used. We do, however, want to indicate in the returned `Field` struct whether or not the field needs unescaping.
+1. **Detect escaped quotes**
+   Escaped quotes (`""`) are detected but not immediately unescaped. Instead, the returned `Field` includes a `needs_unescape` flag, allowing the caller to decide whether to pay the cost.
 
-1. **Find the end of the quoted region**
+2. **Locate the closing quote and trailing delimiter**
+   The parser must consume:
 
-   We do need to find the end of the quoted region. Note that for this, we need to consume multiple delimiters.
-   We need to consume the first and last quote delimiters but also if there is any comma or newline (LF or CRLF)
-   delimiters, we need to consume them as well.
+   - The opening quote
+   - Any escaped quotes
+   - The closing quote
+   - The following comma or newline (if present)
+
+This logic is implemented as a small finite-state automaton, consuming delimiters until the quoted region is complete.
 
 ![FSA for handling quoted regions](/p/1-csv-zero-fsa-quotes.svg)
 
-## Reducing code branches
+## Reducing branches in hot loops
 
-Handling both CRLF and LF in CSV can seem innocent but presents a lot of challenges such as adding code branches. Code
-branches such as `if` clauses, necessitate putting `jmp` instructions and causing branching mispredictions which can
-creep up and become costly when you are tuning performance at this level. In order to avoid the branches we never look
-for `\r` specifically. We only fish for `\n`. When `\n` is found, then we should consider whether or not the slice
-should end just before `\n` or one additional character (in case the previous character is `\r`). To do this, we
-compute `trim_cr` which is a single bit unsigned integer and is either `1` if the delimtier is `\n` and the previous
-character is available and equal to `\r`. In such a case, we want to remove the last character from the slice.
+Modern CPUs rely on branch prediction to maintain instruction pipeline efficiency. When a branch is mispredicted, the pipeline must be flushed, incurring a substantial cycle penalty. In tight loops processing millions of fields, even infrequent mispredictions compound into measurable overhead.
 
-Since this is in a hot-loop, it leads to noticeable performance gains compared to an `if` statement here. The code
-below would not introduce any `jmp` instruction and therefore no risk for branch misprediction.
+At this level of optimization, branch misprediction becomes a real cost.
+
+One notable example is handling both LF and CRLF line endings. Rather than branching on `\r`, the parser only checks for `\n`. If the delimiter is `\n`, a branch-free computation determines whether the preceding byte was `\r` and trims it if necessary:
 
 ```zig
-const prev_is_cr = @intFromBool((end != 0) and (self.reader.buffer[end - 1] == '\r'));
+// Branching version (susceptible to misprediction)
+if (delim == '\n' and end > 0 and buffer[end - 1] == '\r') {
+    return buffer[start .. end - 1];  // Trim \r
+} else {
+    return buffer[start .. end];
+}
+
+// Branch-free version
+const prev_is_cr = @intFromBool(end != 0 and buffer[end - 1] == '\r');
 const is_newline = @intFromBool(delim == '\n');
-const trim_cr = prev_is_cr & is_newline;
-const slice = [start .. end - trim_cr];  // trim_cr is 1 only if delim is \n and the previous character is \r
+const trim_cr = prev_is_cr & is_newline;  // 1 if we need to trim \r, 0 otherwise
+
+return buffer[start .. end - trim_cr];
 ```
 
-There are some other places where a similar technique is used but this was the most impactful change.
+This avoids conditional jumps entirely, reducing misprediction in a hot path.
+
+Similar techniques are used elsewhere, but this change alone produced measurable improvements.
 
 # Benchmarking
 
-I created a separate repository, [csv-race](https://github.com/peymanmortazavi/csv-race) to help benchmark many CSV parsers and use `perf` and other tools to create different
-figures depicting cache locality, branch misprediction rate, peak RSS and of course latency.
+Rigorous benchmarking is critical for validating optimization claims. I created [csv-race](https://github.com/peymanmortazavi/csv-race), a benchmarking harness that compares multiple CSV parsers using Linux `perf` and other profiling tools. The repository provides reproducible methodology for generating performance metrics:
 
-The repository goes into further details on the methodology and each metric and it can be used to reproduce the results
-on your own computer or use it compare against other parsers.
+- **Wall-clock latency**: Total time to process the file
+- **Branch miss rate**: Percentage of branch mispredictions
+- **Cache locality**: Cache miss statistics
+- **Peak RSS**: Maximum resident set size (memory usage)
 
-To briefly reiterate parts of it. In order to isolate the benchmark to the iteration itself, no numerical conversion or
-string manipulation is used in the test. The only task is iterate every single field and count them. A fixed buffer
-size of 64KB is used and various different CSV files are used. 4 small test files that are common used in CSV
-benchmarks and some generated CSV files based on different criterias such as presence of quotes,
-length of the fields, number of records, etc.
+**Methodology**: To isolate parser performance from downstream processing, the benchmark measures only iteration throughput—no numerical conversion, string manipulation, or data structure building. The task is simply to iterate every field and count them. All parsers use a fixed 64KB buffer to ensure fair comparison.
+
+**Test corpus**: The benchmark suite includes commonly-used CSV files (WorldCities, NFL games) plus synthetically generated files with controlled characteristics:
+
+- Varying record counts (different file sizes)
+- Varying field lengths
+- Varying column counts
+- Files with and without quoted fields
+
+This diversity ensures the benchmarks reflect real-world CSV file heterogeneity rather than overfitting to a single pattern.
 
 Here's the results from the benchmarks:
 
-### Latency, Small Files
+### Latency (small files)
 
 ![Time Latency - Small Files](https://github.com/peymanmortazavi/csv-race/raw/main/images/wall_time.png)
 
-### Latency, Large Files
+### Latency (large files)
 
 ![Time Latency - Large Files](https://github.com/peymanmortazavi/csv-race/raw/main/images/wall_time_xl.png)
 
-### Branch Misses
+### Branch misses
 
-![Time Latency - Large Files](https://github.com/peymanmortazavi/csv-race/raw/main/images/branch_misses.png)
+![Branch Misses](https://github.com/peymanmortazavi/csv-race/raw/main/images/branch_misses.png)
 
 # Conclusion
 
-I learned a whole lot taking on designing and building a seemingly simple task of parsing CSV files. The implementation
-is in [Zig](https://ziglang.org/) and is ready to use as-is. I do have some plans to add additional utilities to make it more feature-rich but
-the project should be ready to use. Since C is a more popular and used language, I added an accompanying C interface
-that allows you to use this library in your C/C++ code.
+Designing a fast CSV parser turned out to be a far richer problem than it initially appeared. By committing to zero allocation, leveraging SIMD for delimiter detection, and aggressively reducing branches, csv-zero achieves high throughput while remaining simple and predictable.
 
-I do want to take a moment and express my enthusiasm and excitement for the Zig language.
-Zig has a way of making programming really enjoyable and it has made it very easy to take on advanced concepts
-such as custom allocators, SIMD and I/O loops.
-I want to thank all of the people involved in the Zig language, there are truly amazing things happening here.
-I already donate to the Zig language foundation and can only recommend you the reader to check the language out and
-consider supporting it either by using it and finding bugs or talking about it or even financial means.
+The implementation is available at [github.com/peymanmortazavi/csv-zero](https://github.com/peymanmortazavi/csv-zero) and is ready to use. I have plans to add additional utilities, but the core library is production-ready. A C-compatible interface is included for integration with C/C++ projects.
+
+I want to express my enthusiasm for the Zig language. Zig has made exploring low-level concepts—custom allocators, SIMD via @Vector, explicit memory control, and compile-time code generation—both accessible and enjoyable. There are many factors to consider when choosing a programming language, but for me, Zig is by far the most enjoyable language to work in—and that enjoyment is not limited to low-level programming.
+
+I want to thank everyone involved in the Zig language and its community. I already support the Zig Software Foundation and encourage you to explore the language, contribute bug reports, share your experiences, or support it financially if it resonates with you.
