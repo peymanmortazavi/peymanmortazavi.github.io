@@ -2,7 +2,36 @@
 	import ProjectHead from "./ProjectHead.svelte";
 </script>
 
-<div class="p-2 pr-4 md:p-6 lg:p-10 xl:p-16">
+<div class="p-2 pr-4 flex flex-col gap-10 xl:gap-20 md:p-6 lg:p-10 xl:p-16">
+	<ProjectHead
+		title="CSV Zero"
+		links={[
+			{
+				alt: "github link",
+				icon: "/github.svg",
+				url: "https://github.com/peymanmortazavi/csv-zero",
+			},
+		]}
+	>
+		<ul class="space-y-4">
+			<li>
+				csv-zero is a CSV parsing library written in Zig that exposes a low-level, zero-allocation and SIMD-accelerated field iterator.
+
+				It intentionally does less than typical CSV libraries. There is no record abstraction, no automatic allocation, and no opinionated data model. Instead, csv-zero provides the minimal mechanics of CSV parsing so you can build exactly what you need—explicitly and predictably—on top.
+
+				This library is designed for systems engineers and performance-sensitive tooling where control and transparency matter more than convenience.
+			</li>
+			<li>
+				C/C++ interface available, via static and shared/dynamic libraries.
+			</li>
+			<li>Zero allocations by default</li>
+			<li>Use SIMD to improve performance</li>
+			<li>Strict RFC 4180 compliance</li>
+			<li>Benchmark data available at <strong><a href="https://github.com/peymanmortazavi/csv-race">CSV
+				Race</a></strong></li>
+		</ul>
+	</ProjectHead>
+
 	<ProjectHead
 		title="gRPC API Gateway"
 		links={[
