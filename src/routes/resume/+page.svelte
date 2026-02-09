@@ -22,32 +22,40 @@
 	onSelectionChanged={(selection) => (selectedRange = selection)}
 >
 	<WorkExperience
-		title="Principal Software Engineer"
-		start={new Date(2021, 11)}
+		title="Founding Engineer"
+		start={new Date(2026, 1)}
 		end={new Date()}
-		employer="Persefoni"
+		employer="Shade, Inc"
 		present
 	>
+		Well, I just started so this is TBD but I will be working on networking and storage!
+	</WorkExperience>
+
+	<WorkExperience
+		title="Principal Software Engineer"
+		start={new Date(2021, 11)}
+		end={new Date(2026, 1)}
+		employer="Persefoni"
+	>
 		<li>
-			Spearheaded the transformation of backend systems to a microservices
-			architecture, reducing service creation time from 3 weeks to 2 hours.
+			Drove the design of a distributed service architecture, partnering with central architecture teams to define resource and failure boundaries, reducing new service creation time from 3 weeks to 2 hours.
 		</li>
 
 		<li>
-			Architected and led the implementation effort for an enterprise
-			fine-grained ReBAC capable of handling queries on large tables.
+			Drove the design and implementation of a centralized authorization service based on the ReBAC (Zanzibar) model, capable of efficiently executing complex authorization queries over large relational datasets.
 		</li>
 
 		<li>
-			Engineered an IAM service, achieving an 80% reduction in latency,
-			maintaining a 99.99% uptime.
+			Built resource-aware execution models in Go and Kubernetes, enabling high-throughput processing of previously infeasible workloads.
 		</li>
 
 		<li>
-			Orchestrated process improvements and team ceremonies, helping in efforts
-			to transforming deployment frequency to rapid 7-minute daily deployments
-			from initial biweekly 3-hour deployments.
+			Implemented a query planner and AST-based SQL generation system for optimized, declarative SQL with join elimination.
 		</li>
+
+		<br>
+		I worked at the intersection of distributed systems and performance engineering, focusing on correctness, observability, and resource efficiency.
+		My work emphasized understanding CPU, memory, and I/O behavior, applying low-level optimizations when abstractions become limiting, and designing execution models that scale reliably under real production constraints.
 	</WorkExperience>
 
 	<WorkExperience
