@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setContext, type Snippet } from "svelte";
+	import { onMount, setContext, type Snippet } from "svelte";
 
 	interface Props {
 		onSelectionChanged: (range: { start: Date; end: Date }) => void;
@@ -19,8 +19,15 @@
 	}
 
 	const props: Props = $props();
+  let container: HTMLElement;
 	let currentSelection = $state({ start: new Date(), end: new Date() });
 	let lastScrollValue = 0;
+
+  onMount(() => {
+    if (container) {
+      container.focus();
+    }
+  });
 
 	const registry = {
 		entries: new Map<HTMLElement, Record>(),
@@ -99,7 +106,7 @@
 
 <svelte:window on:resize={registry.updateScrollValues.bind(registry)} />
 
-<div class="flex flex-col gap-12 {props.class ?? ''}" onscroll={handleScroll}>
+<div class="flex flex-col gap-12 {props.class ?? ''} [scrollbar-width:none]" onscroll={handleScroll} bind:this={container}>
 	{@render props.children?.()}
 
 	<div

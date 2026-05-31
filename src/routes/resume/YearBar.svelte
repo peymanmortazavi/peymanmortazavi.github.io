@@ -20,13 +20,13 @@
 	}
 
 	function checkpointXDatePosition(date: Date) {
-		const currentIndex = props.endYear - date.getUTCFullYear();
+		const currentIndex =  date.getUTCFullYear() - props.startYear;
 		const multiplier = width / (yearCount + 2);
 		let monthPortion = (multiplier * date.getMonth()) / 12;
 		if (currentIndex === 0) {
 			monthPortion = 0;
 		}
-		return multiplier * currentIndex - monthPortion + GetRandomInt(10, 16);
+		return multiplier * currentIndex + monthPortion + GetRandomInt(10, 16);
 	}
 </script>
 
@@ -56,7 +56,7 @@
 				font-size="20"
 				transform={`rotate(${GetRandomInt(-10, -20)} ${checkpointXPosition(index)},50)`}
 			>
-				{index == 0 ? "present" : props.endYear - index}
+				{props.startYear + index}
 			</text>
 		{/each}
 	{/key}

@@ -36,7 +36,7 @@
 			<div class="gap"></div>
 			<div class="flex-1 overflow-hidden" bind:this={stageElement}>
 				<div
-					class="flex flex-col relative h-full overflow-x-hidden z-20 flex-1 overflow-scroll"
+					class="flex flex-col relative h-full overflow-x-hidden z-20 flex-1 overflow-scroll [scrollbar-width:none]"
 				>
 					{@render children()}
 				</div>
