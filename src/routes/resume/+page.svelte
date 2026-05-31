@@ -15,10 +15,10 @@
 	/>
 </svelte:head>
 
-<YearBar startYear={2017} endYear={2025} {selectedRange} />
+<YearBar startYear={2017} endYear={new Date().getFullYear()+1} {selectedRange} />
 
 <WorkExperienceContainer
-	class="mt-2 md:mt-6 lg:mt-12 m-6 md:m-10 xl:m-16 overflow-scroll"
+	class="mt-2 md:mt-6 lg:mt-12 m-6 md:m-10 xl:m-16 overflow-scroll focus:outline-0"
 	onSelectionChanged={(selection) => (selectedRange = selection)}
 >
 	<WorkExperience
